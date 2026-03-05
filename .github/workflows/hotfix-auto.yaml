@@ -232,77 +232,77 @@ jobs:
             echo "status=merge_failed" >> $GITHUB_OUTPUT
           fi
 
-      - name: Notify Teams
-        continue-on-error: true
-        shell: bash
-        env:
-          WEBHOOK:   ${{ secrets.HOTFIX_WEBHOOK }}
-          HOTFIX:    ${{ github.event.pull_request.head.ref }}
-          TARGET:    ${{ matrix.target }}
-          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
-          PR_URL:    ${{ github.event.pull_request.html_url }}
-          STATUS:    ${{ steps.promote.outputs.status }}
-          PROMO_URL: ${{ steps.promote.outputs.pr_url }}
-          CONFLICTS: ${{ steps.promote.outputs.conflicts }}
-          RUN_URL:   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          case "$STATUS" in
-            merged)       COLOR="Good";      TITLE="Hotfix Promoted to $TARGET";                        SUBTITLE="Successfully promoted and merged into $TARGET." ;;
-            conflict)     COLOR="Attention"; TITLE="Hotfix Promotion Failed - Conflict in $TARGET";     SUBTITLE="Conflicts: $CONFLICTS. Please resolve manually." ;;
-            merge_failed) COLOR="Attention"; TITLE="Hotfix Promotion Failed - Merge Error in $TARGET";  SUBTITLE="PR created but auto-merge failed. Please merge manually." ;;
-            existing_pr)  COLOR="Warning";   TITLE="Hotfix Promotion Skipped - Open PR in $TARGET";     SUBTITLE="An open promotion PR already exists. Please review and merge it." ;;
-            *)            COLOR="Attention"; TITLE="Hotfix Promotion - Action Required for $TARGET";    SUBTITLE="An unexpected issue occurred. Check the workflow logs." ;;
-          esac
+      # - name: Notify Teams
+      #   continue-on-error: true
+      #   shell: bash
+      #   env:
+      #     WEBHOOK:   ${{ secrets.HOTFIX_WEBHOOK }}
+      #     HOTFIX:    ${{ github.event.pull_request.head.ref }}
+      #     TARGET:    ${{ matrix.target }}
+      #     MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+      #     PR_URL:    ${{ github.event.pull_request.html_url }}
+      #     STATUS:    ${{ steps.promote.outputs.status }}
+      #     PROMO_URL: ${{ steps.promote.outputs.pr_url }}
+      #     CONFLICTS: ${{ steps.promote.outputs.conflicts }}
+      #     RUN_URL:   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      #   run: |
+      #     case "$STATUS" in
+      #       merged)       COLOR="Good";      TITLE="Hotfix Promoted to $TARGET";                        SUBTITLE="Successfully promoted and merged into $TARGET." ;;
+      #       conflict)     COLOR="Attention"; TITLE="Hotfix Promotion Failed - Conflict in $TARGET";     SUBTITLE="Conflicts: $CONFLICTS. Please resolve manually." ;;
+      #       merge_failed) COLOR="Attention"; TITLE="Hotfix Promotion Failed - Merge Error in $TARGET";  SUBTITLE="PR created but auto-merge failed. Please merge manually." ;;
+      #       existing_pr)  COLOR="Warning";   TITLE="Hotfix Promotion Skipped - Open PR in $TARGET";     SUBTITLE="An open promotion PR already exists. Please review and merge it." ;;
+      #       *)            COLOR="Attention"; TITLE="Hotfix Promotion - Action Required for $TARGET";    SUBTITLE="An unexpected issue occurred. Check the workflow logs." ;;
+      #     esac
 
-          PROMO_ACTION=""
-          if [ -n "$PROMO_URL" ]; then
-            PROMO_ACTION=", { \"type\": \"Action.OpenUrl\", \"title\": \"View $TARGET PR\", \"url\": \"$PROMO_URL\" }"
-          fi
+      #     PROMO_ACTION=""
+      #     if [ -n "$PROMO_URL" ]; then
+      #       PROMO_ACTION=", { \"type\": \"Action.OpenUrl\", \"title\": \"View $TARGET PR\", \"url\": \"$PROMO_URL\" }"
+      #     fi
 
-          CONFLICT_FACT=""
-          if [ "$STATUS" = "conflict" ] && [ -n "$CONFLICTS" ]; then
-            CONFLICT_FACT=", { \"title\": \"Conflict Files:\", \"value\": \"$CONFLICTS\" }"
-          fi
+      #     CONFLICT_FACT=""
+      #     if [ "$STATUS" = "conflict" ] && [ -n "$CONFLICTS" ]; then
+      #       CONFLICT_FACT=", { \"title\": \"Conflict Files:\", \"value\": \"$CONFLICTS\" }"
+      #     fi
 
-          PAYLOAD=$(cat <<EOF
-          {
-            "type": "message",
-            "attachments": [{
-              "contentType": "application/vnd.microsoft.card.adaptive",
-              "contentUrl": null,
-              "content": {
-                "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                "type": "AdaptiveCard",
-                "version": "1.4",
-                "msteams": { "width": "Full" },
-                "body": [
-                  { "type": "TextBlock", "text": "$TITLE",    "weight": "Bolder", "size": "Large", "color": "$COLOR" },
-                  { "type": "TextBlock", "text": "$SUBTITLE", "wrap": true,       "color": "$COLOR" },
-                  {
-                    "type": "FactSet",
-                    "facts": [
-                      { "title": "Hotfix Branch:", "value": "$HOTFIX"    },
-                      { "title": "Target:",        "value": "$TARGET"    },
-                      { "title": "Merged By:",     "value": "$MERGED_BY" },
-                      { "title": "Status:",        "value": "$STATUS"    }
-                      $CONFLICT_FACT
-                    ]
-                  },
-                  {
-                    "type": "ActionSet",
-                    "actions": [
-                      { "type": "Action.OpenUrl", "title": "View Hotfix PR", "url": "$PR_URL" }
-                      $PROMO_ACTION,
-                      { "type": "Action.OpenUrl", "title": "View Workflow",  "url": "$RUN_URL" }
-                    ]
-                  }
-                ]
-              }
-            }]
-          }
-          EOF
-          )
-          curl -s -X POST "$WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
-          echo "Teams notification sent — status: $STATUS"
+      #     PAYLOAD=$(cat <<EOF
+      #     {
+      #       "type": "message",
+      #       "attachments": [{
+      #         "contentType": "application/vnd.microsoft.card.adaptive",
+      #         "contentUrl": null,
+      #         "content": {
+      #           "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+      #           "type": "AdaptiveCard",
+      #           "version": "1.4",
+      #           "msteams": { "width": "Full" },
+      #           "body": [
+      #             { "type": "TextBlock", "text": "$TITLE",    "weight": "Bolder", "size": "Large", "color": "$COLOR" },
+      #             { "type": "TextBlock", "text": "$SUBTITLE", "wrap": true,       "color": "$COLOR" },
+      #             {
+      #               "type": "FactSet",
+      #               "facts": [
+      #                 { "title": "Hotfix Branch:", "value": "$HOTFIX"    },
+      #                 { "title": "Target:",        "value": "$TARGET"    },
+      #                 { "title": "Merged By:",     "value": "$MERGED_BY" },
+      #                 { "title": "Status:",        "value": "$STATUS"    }
+      #                 $CONFLICT_FACT
+      #               ]
+      #             },
+      #             {
+      #               "type": "ActionSet",
+      #               "actions": [
+      #                 { "type": "Action.OpenUrl", "title": "View Hotfix PR", "url": "$PR_URL" }
+      #                 $PROMO_ACTION,
+      #                 { "type": "Action.OpenUrl", "title": "View Workflow",  "url": "$RUN_URL" }
+      #               ]
+      #             }
+      #           ]
+      #         }
+      #       }]
+      #     }
+      #     EOF
+      #     )
+      #     curl -s -X POST "$WEBHOOK" \
+      #       -H "Content-Type: application/json" \
+      #       -d "$PAYLOAD"
+      #     echo "Teams notification sent — status: $STATUS"
