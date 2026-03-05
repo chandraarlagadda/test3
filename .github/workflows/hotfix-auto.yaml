@@ -1,0 +1,308 @@
+name: Promote Hotfix
+
+on:
+  pull_request:
+    branches: [ master-test ]
+    types: [ opened, synchronize, reopened, closed ]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1: Build Validation (DUMMY)
+  # Real workflow uses: runs-on: Windows (self-hosted)
+  # Dummy uses: runs-on: ubuntu-latest (no self-hosted needed)
+  #
+  # To test BUILD FAILURE: change the "Simulate build" step to
+  # use `exit 1` instead of `exit 0`
+  # ─────────────────────────────────────────────────────────────
+  build-check:
+    name: "Build Check"
+    if: |
+      github.event.action != 'closed' &&
+      startsWith(github.event.pull_request.head.ref, 'hotfix/automerge')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Simulate restore
+        run: echo "Simulating dotnet restore..."
+
+      - name: Simulate build
+        id: build
+        run: |
+          echo "Simulating dotnet build..."
+          echo "Build succeeded."
+          # To simulate a failure, comment the above and uncomment below:
+          # echo "Build failed." && exit 1
+
+      # - name: Notify Teams
+      #   if: always()
+      #   shell: bash
+      #   env:
+      #     WEBHOOK:   ${{ secrets.HOTFIX_WEBHOOK }}
+      #     STATUS:    ${{ job.status }}
+      #     BRANCH:    ${{ github.event.pull_request.head.ref }}
+      #     RAISED_BY: ${{ github.event.pull_request.user.login }}
+      #     PR_URL:    ${{ github.event.pull_request.html_url }}
+      #     RUN_URL:   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      #   run: |
+      #     if [ "$STATUS" = "success" ]; then
+      #       COLOR="Good"
+      #       TITLE="Hotfix Build Passed - Ready to Merge"
+      #       SUBTITLE="Build passed successfully. This hotfix is ready to be merged into master-test."
+      #     else
+      #       COLOR="Attention"
+      #       TITLE="Hotfix Build Failed - Merge Blocked"
+      #       SUBTITLE="Build failed. The merge into master-test is BLOCKED until the build passes."
+      #     fi
+
+      #     PAYLOAD=$(cat <<EOF
+      #     {
+      #       "type": "message",
+      #       "attachments": [{
+      #         "contentType": "application/vnd.microsoft.card.adaptive",
+      #         "contentUrl": null,
+      #         "content": {
+      #           "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+      #           "type": "AdaptiveCard",
+      #           "version": "1.4",
+      #           "msteams": { "width": "Full" },
+      #           "body": [
+      #             { "type": "TextBlock", "text": "$TITLE", "weight": "Bolder", "size": "Large", "color": "$COLOR" },
+      #             { "type": "TextBlock", "text": "$SUBTITLE", "wrap": true, "color": "$COLOR" },
+      #             {
+      #               "type": "FactSet",
+      #               "facts": [
+      #                 { "title": "Hotfix Branch:", "value": "$BRANCH" },
+      #                 { "title": "Raised By:", "value": "$RAISED_BY" },
+      #                 { "title": "Build Status:", "value": "$STATUS" }
+      #               ]
+      #             },
+      #             {
+      #               "type": "ActionSet",
+      #               "actions": [
+      #                 { "type": "Action.OpenUrl", "title": "View Pull Request", "url": "$PR_URL" },
+      #                 { "type": "Action.OpenUrl", "title": "View Build Logs", "url": "$RUN_URL" }
+      #               ]
+      #             }
+      #           ]
+      #         }
+      #       }]
+      #     }
+      #     EOF
+      #     )
+      #     curl -s -X POST "$WEBHOOK" \
+      #       -H "Content-Type: application/json" \
+      #       -d "$PAYLOAD"
+      #     echo "Teams notification sent — status: $STATUS"
+
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2: Promote Hotfix (DUMMY)
+  # Real workflow uses: runs-on: windows-latest
+  # Dummy also uses: ubuntu-latest for simplicity
+  # Matrix runs staging-test and qa-test in parallel.
+  #
+  # To test CONFLICT scenario: change "Simulate conflict check"
+  # to set noConflicts=false
+  # To test MERGE FAILURE: change merge step to throw an error
+  # ─────────────────────────────────────────────────────────────
+  promote-hotfix:
+    name: "Promote → ${{ matrix.target }}"
+    if: |
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'hotfix')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ staging-test, qa-test ]
+
+    steps:
+      - name: Generate GitHub App Token
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch all remote branches
+        run: git fetch --all --prune
+
+      - name: Promote Hotfix
+        id: promote
+        env:
+          GH_TOKEN:  ${{ steps.token.outputs.token }}
+          REPO:      ${{ github.repository }}
+          HOTFIX:    ${{ github.event.pull_request.head.ref }}
+          TARGET:    ${{ matrix.target }}
+          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          RUN_ID:    ${{ github.run_id }}
+        run: |
+          OWNER=$(echo "$REPO" | cut -d'/' -f1)
+
+          echo "Promoting: $HOTFIX -> $TARGET"
+
+          # 1. Skip if open PR already exists
+          EXISTING=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/pulls?base=$TARGET&head=$OWNER:$HOTFIX&state=open")
+
+          COUNT=$(echo "$EXISTING" | jq length)
+          if [ "$COUNT" -gt 0 ]; then
+            PR_URL=$(echo "$EXISTING" | jq -r '.[0].html_url')
+            echo "Open PR already exists — skipping."
+            echo "pr_url=$PR_URL"    >> $GITHUB_OUTPUT
+            echo "status=existing_pr" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 2. Conflict check
+          TMP_BRANCH="tmp-$TARGET-check-$RUN_ID"
+          git checkout -b "$TMP_BRANCH" "origin/$TARGET" 2>&1 || true
+          git merge "origin/$HOTFIX" --no-commit --no-ff 2>&1
+          MERGE_EXIT=$?
+          NO_CONFLICTS=true
+          if [ $MERGE_EXIT -ne 0 ]; then
+            NO_CONFLICTS=false
+          fi
+
+          # To simulate a conflict, uncomment below:
+          # NO_CONFLICTS=false
+
+          if [ "$NO_CONFLICTS" = "false" ]; then
+            CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+            git merge --abort 2>/dev/null || true
+            CONFLICT_LIST=${CONFLICT_FILES:-"Unable to determine files"}
+            echo "Conflicts detected: $CONFLICT_LIST"
+            echo "conflicts=$CONFLICT_LIST" >> $GITHUB_OUTPUT
+            echo "status=conflict"          >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          git merge --abort 2>/dev/null || true
+
+          # 3. Create PR
+          PR_BODY="Automated promotion of \`$HOTFIX\` into \`$TARGET\`.\n\nTriggered after merge into master-test by **$MERGED_BY**."
+          CREATE_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/$REPO/pulls" \
+            -d "{\"title\":\"Hotfix Promotion: $HOTFIX -> $TARGET\",\"head\":\"$HOTFIX\",\"base\":\"$TARGET\",\"body\":\"$PR_BODY\"}")
+
+          PR_NUMBER=$(echo "$CREATE_RESPONSE" | jq -r '.number')
+          PR_URL=$(echo "$CREATE_RESPONSE" | jq -r '.html_url')
+          echo "Created PR #$PR_NUMBER: $PR_URL"
+          echo "pr_url=$PR_URL"      >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+          # 4. Auto-merge
+          MERGE_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/merge" \
+            -d "{\"commit_title\":\"chore: promote $HOTFIX into $TARGET\",\"merge_method\":\"merge\"}")
+
+          if [ "$MERGE_RESPONSE" = "200" ]; then
+            echo "Successfully merged PR #$PR_NUMBER into $TARGET"
+            echo "status=merged" >> $GITHUB_OUTPUT
+          else
+            echo "Merge failed — HTTP $MERGE_RESPONSE"
+            echo "status=merge_failed" >> $GITHUB_OUTPUT
+          fi
+
+      # - name: Notify Teams
+      #   continue-on-error: true
+      #   shell: bash
+      #   env:
+      #     WEBHOOK:   ${{ secrets.HOTFIX_WEBHOOK }}
+      #     HOTFIX:    ${{ github.event.pull_request.head.ref }}
+      #     TARGET:    ${{ matrix.target }}
+      #     MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+      #     PR_URL:    ${{ github.event.pull_request.html_url }}
+      #     STATUS:    ${{ steps.promote.outputs.status }}
+      #     PROMO_URL: ${{ steps.promote.outputs.pr_url }}
+      #     CONFLICTS: ${{ steps.promote.outputs.conflicts }}
+      #     RUN_URL:   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      #   run: |
+      #     case "$STATUS" in
+      #       merged)       COLOR="Good";      TITLE="Hotfix Promoted to $TARGET";                        SUBTITLE="Successfully promoted and merged into $TARGET." ;;
+      #       conflict)     COLOR="Attention"; TITLE="Hotfix Promotion Failed - Conflict in $TARGET";     SUBTITLE="Conflicts: $CONFLICTS. Please resolve manually." ;;
+      #       merge_failed) COLOR="Attention"; TITLE="Hotfix Promotion Failed - Merge Error in $TARGET";  SUBTITLE="PR created but auto-merge failed. Please merge manually." ;;
+      #       existing_pr)  COLOR="Warning";   TITLE="Hotfix Promotion Skipped - Open PR in $TARGET";     SUBTITLE="An open promotion PR already exists. Please review and merge it." ;;
+      #       *)            COLOR="Attention"; TITLE="Hotfix Promotion - Action Required for $TARGET";    SUBTITLE="An unexpected issue occurred. Check the workflow logs." ;;
+      #     esac
+
+      #     PROMO_ACTION=""
+      #     if [ -n "$PROMO_URL" ]; then
+      #       PROMO_ACTION=", { \"type\": \"Action.OpenUrl\", \"title\": \"View $TARGET PR\", \"url\": \"$PROMO_URL\" }"
+      #     fi
+
+      #     CONFLICT_FACT=""
+      #     if [ "$STATUS" = "conflict" ] && [ -n "$CONFLICTS" ]; then
+      #       CONFLICT_FACT=", { \"title\": \"Conflict Files:\", \"value\": \"$CONFLICTS\" }"
+      #     fi
+
+      #     PAYLOAD=$(cat <<EOF
+      #     {
+      #       "type": "message",
+      #       "attachments": [{
+      #         "contentType": "application/vnd.microsoft.card.adaptive",
+      #         "contentUrl": null,
+      #         "content": {
+      #           "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+      #           "type": "AdaptiveCard",
+      #           "version": "1.4",
+      #           "msteams": { "width": "Full" },
+      #           "body": [
+      #             { "type": "TextBlock", "text": "$TITLE",    "weight": "Bolder", "size": "Large", "color": "$COLOR" },
+      #             { "type": "TextBlock", "text": "$SUBTITLE", "wrap": true,       "color": "$COLOR" },
+      #             {
+      #               "type": "FactSet",
+      #               "facts": [
+      #                 { "title": "Hotfix Branch:", "value": "$HOTFIX"    },
+      #                 { "title": "Target:",        "value": "$TARGET"    },
+      #                 { "title": "Merged By:",     "value": "$MERGED_BY" },
+      #                 { "title": "Status:",        "value": "$STATUS"    }
+      #                 $CONFLICT_FACT
+      #               ]
+      #             },
+      #             {
+      #               "type": "ActionSet",
+      #               "actions": [
+      #                 { "type": "Action.OpenUrl", "title": "View Hotfix PR", "url": "$PR_URL" }
+      #                 $PROMO_ACTION,
+      #                 { "type": "Action.OpenUrl", "title": "View Workflow",  "url": "$RUN_URL" }
+      #               ]
+      #             }
+      #           ]
+      #         }
+      #       }]
+      #     }
+      #     EOF
+      #     )
+      #     curl -s -X POST "$WEBHOOK" \
+      #       -H "Content-Type: application/json" \
+      #       -d "$PAYLOAD"
+      #     echo "Teams notification sent — status: $STATUS"
