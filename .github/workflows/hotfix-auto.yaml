@@ -44,66 +44,66 @@ jobs:
           # To simulate a failure, comment the above and uncomment below:
           # echo "Build failed." && exit 1
 
-      - name: Notify Teams
-        if: always()
-        shell: bash
-        env:
-          WEBHOOK:   ${{ secrets.HOTFIX_WEBHOOK }}
-          STATUS:    ${{ job.status }}
-          BRANCH:    ${{ github.event.pull_request.head.ref }}
-          RAISED_BY: ${{ github.event.pull_request.user.login }}
-          PR_URL:    ${{ github.event.pull_request.html_url }}
-          RUN_URL:   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ "$STATUS" = "success" ]; then
-            COLOR="Good"
-            TITLE="Hotfix Build Passed - Ready to Merge"
-            SUBTITLE="Build passed successfully. This hotfix is ready to be merged into master-test."
-          else
-            COLOR="Attention"
-            TITLE="Hotfix Build Failed - Merge Blocked"
-            SUBTITLE="Build failed. The merge into master-test is BLOCKED until the build passes."
-          fi
+      # - name: Notify Teams
+      #   if: always()
+      #   shell: bash
+      #   env:
+      #     WEBHOOK:   ${{ secrets.HOTFIX_WEBHOOK }}
+      #     STATUS:    ${{ job.status }}
+      #     BRANCH:    ${{ github.event.pull_request.head.ref }}
+      #     RAISED_BY: ${{ github.event.pull_request.user.login }}
+      #     PR_URL:    ${{ github.event.pull_request.html_url }}
+      #     RUN_URL:   ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      #   run: |
+      #     if [ "$STATUS" = "success" ]; then
+      #       COLOR="Good"
+      #       TITLE="Hotfix Build Passed - Ready to Merge"
+      #       SUBTITLE="Build passed successfully. This hotfix is ready to be merged into master-test."
+      #     else
+      #       COLOR="Attention"
+      #       TITLE="Hotfix Build Failed - Merge Blocked"
+      #       SUBTITLE="Build failed. The merge into master-test is BLOCKED until the build passes."
+      #     fi
 
-          PAYLOAD=$(cat <<EOF
-          {
-            "type": "message",
-            "attachments": [{
-              "contentType": "application/vnd.microsoft.card.adaptive",
-              "contentUrl": null,
-              "content": {
-                "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                "type": "AdaptiveCard",
-                "version": "1.4",
-                "msteams": { "width": "Full" },
-                "body": [
-                  { "type": "TextBlock", "text": "$TITLE", "weight": "Bolder", "size": "Large", "color": "$COLOR" },
-                  { "type": "TextBlock", "text": "$SUBTITLE", "wrap": true, "color": "$COLOR" },
-                  {
-                    "type": "FactSet",
-                    "facts": [
-                      { "title": "Hotfix Branch:", "value": "$BRANCH" },
-                      { "title": "Raised By:", "value": "$RAISED_BY" },
-                      { "title": "Build Status:", "value": "$STATUS" }
-                    ]
-                  },
-                  {
-                    "type": "ActionSet",
-                    "actions": [
-                      { "type": "Action.OpenUrl", "title": "View Pull Request", "url": "$PR_URL" },
-                      { "type": "Action.OpenUrl", "title": "View Build Logs", "url": "$RUN_URL" }
-                    ]
-                  }
-                ]
-              }
-            }]
-          }
-          EOF
-          )
-          curl -s -X POST "$WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
-          echo "Teams notification sent — status: $STATUS"
+      #     PAYLOAD=$(cat <<EOF
+      #     {
+      #       "type": "message",
+      #       "attachments": [{
+      #         "contentType": "application/vnd.microsoft.card.adaptive",
+      #         "contentUrl": null,
+      #         "content": {
+      #           "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+      #           "type": "AdaptiveCard",
+      #           "version": "1.4",
+      #           "msteams": { "width": "Full" },
+      #           "body": [
+      #             { "type": "TextBlock", "text": "$TITLE", "weight": "Bolder", "size": "Large", "color": "$COLOR" },
+      #             { "type": "TextBlock", "text": "$SUBTITLE", "wrap": true, "color": "$COLOR" },
+      #             {
+      #               "type": "FactSet",
+      #               "facts": [
+      #                 { "title": "Hotfix Branch:", "value": "$BRANCH" },
+      #                 { "title": "Raised By:", "value": "$RAISED_BY" },
+      #                 { "title": "Build Status:", "value": "$STATUS" }
+      #               ]
+      #             },
+      #             {
+      #               "type": "ActionSet",
+      #               "actions": [
+      #                 { "type": "Action.OpenUrl", "title": "View Pull Request", "url": "$PR_URL" },
+      #                 { "type": "Action.OpenUrl", "title": "View Build Logs", "url": "$RUN_URL" }
+      #               ]
+      #             }
+      #           ]
+      #         }
+      #       }]
+      #     }
+      #     EOF
+      #     )
+      #     curl -s -X POST "$WEBHOOK" \
+      #       -H "Content-Type: application/json" \
+      #       -d "$PAYLOAD"
+      #     echo "Teams notification sent — status: $STATUS"
 
 
   # ─────────────────────────────────────────────────────────────
