@@ -24,7 +24,7 @@ jobs:
     name: "Build Check"
     if: |
       github.event.action != 'closed' &&
-      startsWith(github.event.pull_request.head.ref, 'hotfix/*')
+      startsWith(github.event.pull_request.head.ref, 'hotfix/automerge')
     runs-on: ubuntu-latest
 
     steps:
